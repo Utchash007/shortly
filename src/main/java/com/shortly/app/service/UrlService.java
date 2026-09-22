@@ -4,6 +4,7 @@ import com.shortly.app.dto.CreateUrlRequest;
 import com.shortly.app.dto.UrlResponse;
 import com.shortly.app.entity.Url;
 import com.shortly.app.exception.AliasAlreadyExistsException;
+import com.shortly.app.exception.InvalidAliasException;
 import com.shortly.app.exception.UrlExpiredException;
 import com.shortly.app.exception.UrlNotFoundException;
 import com.shortly.app.repository.UrlRepository;
@@ -15,7 +16,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Core URL shortening logic: creation, resolution, lookup and soft deletion.
@@ -38,6 +41,14 @@ public class UrlService {
      * Collision retries before giving up on random code generation.
      */
     static final int MAX_GENERATION_ATTEMPTS = 5;
+
+    /**
+     * Single-segment paths owned by the platform. Aliases matching these
+     * (case-insensitively) would shadow infrastructure instead of redirecting.
+     */
+    private static final Set<String> RESERVED_WORDS = Set.of(
+            "api", "actuator", "swagger-ui", "swagger-ui.html",
+            "v3", "v3/api-docs", "favicon.ico", "health", "error");
 
     private final UrlRepository urlRepository;
     private final ShortCodeGenerator shortCodeGenerator;
@@ -157,11 +168,20 @@ public class UrlService {
     /**
      * Claims a custom alias after verifying the shared namespace is free.
      *
+     * <p>Character shape and length are enforced by Bean Validation on the DTO;
+     * this method enforces reserved system paths plus cross-column uniqueness.
+     * The database {@code UNIQUE} constraint remains the final race guard and
+     * surfaces through {@code createUrl} as a conflict.
+     *
      * @param customAlias the requested alias
      * @return the alias as the effective lookup key
+     * @throws InvalidAliasException when the alias is a reserved system path
      * @throws AliasAlreadyExistsException when the alias or an identical short code exists
      */
     private String claimAlias(String customAlias) {
+        if (RESERVED_WORDS.contains(customAlias.toLowerCase(Locale.ROOT))) {
+            throw new InvalidAliasException("Alias is a reserved system path: " + customAlias);
+        }
         if (urlRepository.existsByCustomAlias(customAlias) || urlRepository.existsByShortCode(customAlias)) {
             throw new AliasAlreadyExistsException("Alias already exists: " + customAlias);
         }
