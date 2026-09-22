@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Optional;
 
 /**
  * Core URL shortening logic: creation, resolution, lookup and soft deletion.
@@ -23,6 +24,10 @@ import java.time.Instant;
  * custom aliases share one redirect namespace: a supplied alias becomes the
  * lookup key itself. The database {@code UNIQUE} constraint is the final guard
  * against concurrent-insert races.
+ *
+ * <p>Resolution follows the cache-aside pattern through {@link UrlCacheService}:
+ * Redis first, PostgreSQL fallback, repopulate on miss. Redis outages never
+ * fail requests.
  */
 @Service
 public class UrlService {
@@ -36,6 +41,7 @@ public class UrlService {
 
     private final UrlRepository urlRepository;
     private final ShortCodeGenerator shortCodeGenerator;
+    private final UrlCacheService urlCacheService;
     private final String baseUrl;
 
     /**
@@ -43,13 +49,16 @@ public class UrlService {
      *
      * @param urlRepository persistence for URL records
      * @param shortCodeGenerator random code generator
+     * @param urlCacheService cache-aside read path
      * @param baseUrl public application host used to build {@code shortUrl}, from {@code app.base-url}
      */
     public UrlService(UrlRepository urlRepository,
                       ShortCodeGenerator shortCodeGenerator,
+                      UrlCacheService urlCacheService,
                       @Value("${app.base-url:http://localhost:8080}") String baseUrl) {
         this.urlRepository = urlRepository;
         this.shortCodeGenerator = shortCodeGenerator;
+        this.urlCacheService = urlCacheService;
         this.baseUrl = baseUrl;
     }
 
@@ -72,6 +81,7 @@ public class UrlService {
         try {
             Url saved = urlRepository.save(
                     Url.create(request.originalUrl(), effectiveCode, request.customAlias(), request.expiresAt()));
+            urlCacheService.put(saved.getShortCode(), cached(saved));
             logger.info("Created short URL {} for {}", saved.getShortCode(), saved.getOriginalUrl());
             return toResponse(saved);
         } catch (DataIntegrityViolationException e) {
@@ -83,6 +93,8 @@ public class UrlService {
     /**
      * Resolves a short code or custom alias to its destination URL.
      *
+     * <p>Cache-aside: Redis first, PostgreSQL fallback with repopulation.
+     *
      * @param codeOrAlias the path value from {@code GET /{codeOrAlias}}
      * @return the original URL to redirect to
      * @throws UrlNotFoundException when nothing matches the supplied value
@@ -90,11 +102,20 @@ public class UrlService {
      */
     @Transactional(readOnly = true)
     public String resolveUrl(String codeOrAlias) {
+        Optional<UrlCacheService.CachedUrl> cached = urlCacheService.get(codeOrAlias);
+        if (cached.isPresent()) {
+            UrlCacheService.CachedUrl entry = cached.get();
+            if (!entry.active() || isExpired(entry.expiresAt())) {
+                throw new UrlExpiredException("This short URL has expired.");
+            }
+            return entry.originalUrl();
+        }
         Url url = urlRepository.resolve(codeOrAlias)
                 .orElseThrow(() -> new UrlNotFoundException("No URL exists for short code " + codeOrAlias));
         if (!url.isActive() || url.isExpired()) {
             throw new UrlExpiredException("This short URL has expired.");
         }
+        urlCacheService.put(url.getShortCode(), cached(url));
         return url.getOriginalUrl();
     }
 
@@ -126,6 +147,10 @@ public class UrlService {
                 .orElseThrow(() -> new UrlNotFoundException("No URL exists for id " + id));
         url.deactivate();
         urlRepository.save(url);
+        urlCacheService.evict(url.getShortCode());
+        if (url.getCustomAlias() != null && !url.getCustomAlias().equals(url.getShortCode())) {
+            urlCacheService.evict(url.getCustomAlias());
+        }
         logger.info("Deactivated short URL {}", url.getShortCode());
     }
 
@@ -157,6 +182,26 @@ public class UrlService {
             }
         }
         throw new AliasAlreadyExistsException("Could not generate a unique short code, please retry");
+    }
+
+    /**
+     * Maps a persistent entity to its cacheable form.
+     *
+     * @param url the entity to cache
+     * @return the corresponding cache record
+     */
+    private UrlCacheService.CachedUrl cached(Url url) {
+        return new UrlCacheService.CachedUrl(url.getOriginalUrl(), url.getExpiresAt(), url.isActive());
+    }
+
+    /**
+     * Returns true when the timestamp is set and lies before now.
+     *
+     * @param expiresAt the timestamp to test, may be null
+     * @return true for past timestamps
+     */
+    private boolean isExpired(Instant expiresAt) {
+        return expiresAt != null && expiresAt.isBefore(Instant.now());
     }
 
     /**
