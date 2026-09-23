@@ -1,5 +1,6 @@
 package com.shortly.app;
 
+import com.shortly.app.util.DotenvLoader;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -19,9 +20,13 @@ public class ShortlyApplication {
     /**
      * Boots the Shortly application.
      *
+     * <p>A {@code .env} file is applied first so secret mounts work without
+     * dashboard variables; real environment entries always take precedence.
+     *
      * @param args command line arguments passed to {@link SpringApplication}
      */
     public static void main(String[] args) {
+        DotenvLoader.load();
         SpringApplication.run(ShortlyApplication.class, args);
     }
 }
