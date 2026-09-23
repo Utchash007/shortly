@@ -13,6 +13,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.List;
@@ -108,6 +109,25 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(
                 Instant.now(), HttpStatus.NOT_FOUND.value(), "URL_NOT_FOUND",
                 e.getMessage(), request.getRequestURI(), null));
+    }
+
+    /**
+     * Handles requests to paths with no handler or static resource.
+     *
+     * <p>Routine visitor noise (browsers, uptime probes): mapped quietly
+     * without an error log.
+     *
+     * @param e the missing resource
+     * @param request the failing request
+     * @return 404
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResource(
+            NoResourceFoundException e, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(
+                Instant.now(), HttpStatus.NOT_FOUND.value(), "URL_NOT_FOUND",
+                "No resource found for path " + request.getRequestURI(),
+                request.getRequestURI(), null));
     }
 
     /**
