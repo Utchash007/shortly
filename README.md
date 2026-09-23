@@ -27,18 +27,23 @@ springdoc OpenAPI · JUnit 5 + Mockito + MockMvc + Testcontainers.
 
 ## Quickstart (local, no Docker needed)
 
-1. Create `.env` in the project root (never committed):
-   ```text
-   jdbc=jdbc:postgresql://<host>:5432/postgres?user=<user>&password=<pass>
-   redis_conn=redis://default:<pass>@<host>:<port>
-   ```
-2. Export Spring-style variables from it and boot the dev profile:
-   ```powershell
-   $env:SPRING_PROFILES_ACTIVE = "dev"
-   # SPRING_DATASOURCE_URL / _USERNAME / _PASSWORD from the jdbc line,
-   # SPRING_DATA_REDIS_HOST / _PORT / _PASSWORD from redis_conn
-   ./mvnw spring-boot:run
-   ```
+1. Create `.env` in the project root (never committed — see `.env.example`):
+    ```text
+    SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:5432/postgres
+    SPRING_DATASOURCE_USERNAME=<user>
+    SPRING_DATASOURCE_PASSWORD=<pass>
+    SPRING_DATA_REDIS_HOST=<host>
+    SPRING_DATA_REDIS_PORT=<port>
+    SPRING_DATA_REDIS_PASSWORD=<pass>
+    ```
+    Legacy `jdbc=` / `redis_conn=` one-liners are translated automatically.
+    The app loads the file itself (`DOTENV_PATH`, `./.env`, or
+    `/etc/secrets/.env`); dashboard variables always win over the file.
+2. Boot the dev profile (env vars or the file — either works):
+    ```powershell
+    $env:SPRING_PROFILES_ACTIVE = "dev"
+    ./mvnw spring-boot:run
+    ```
 3. Open `http://localhost:8080/swagger-ui.html` (`/v3/api-docs` for raw OpenAPI,
    `/actuator/health` for liveness).
 
