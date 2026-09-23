@@ -41,6 +41,21 @@ public class RedirectController {
     }
 
     /**
+     * Sends root visitors to the interactive API documentation.
+     *
+     * <p>Exact mapping takes precedence over {@code /{shortCode}}, so short
+     * links are unaffected.
+     *
+     * @return 302 Found with a {@code Location} header to Swagger UI
+     */
+    @GetMapping("/")
+    @Operation(summary = "Redirect to the API documentation")
+    @ApiResponse(responseCode = "302", description = "Redirect to Swagger UI")
+    public ResponseEntity<Void> root() {
+        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create("/swagger-ui.html")).build();
+    }
+
+    /**
      * Redirects to the original URL for the given short code or alias.
      *
      * @param shortCode the lookup key from the path
