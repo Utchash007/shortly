@@ -102,32 +102,56 @@ public class UrlService {
     }
 
     /**
-     * Resolves a short code or custom alias to its destination URL.
+     * Validated redirect target.
+     *
+     * @param urlId database identifier for click recording, null for legacy cache entries
+     * @param originalUrl destination URL
+     */
+    public record ResolvedRedirect(Long urlId, String originalUrl) {
+    }
+
+    /**
+     * Resolves a short code or custom alias to its redirect target.
      *
      * <p>Cache-aside: Redis first, PostgreSQL fallback with repopulation.
      *
      * @param codeOrAlias the path value from {@code GET /{codeOrAlias}}
-     * @return the original URL to redirect to
+     * @return the redirect target including the row id for analytics
      * @throws UrlNotFoundException when nothing matches the supplied value
      * @throws UrlExpiredException when the link is deactivated or past expiry
      */
     @Transactional(readOnly = true)
-    public String resolveUrl(String codeOrAlias) {
+    public ResolvedRedirect resolveRedirect(String codeOrAlias) {
         Optional<UrlCacheService.CachedUrl> cached = urlCacheService.get(codeOrAlias);
         if (cached.isPresent()) {
             UrlCacheService.CachedUrl entry = cached.get();
             if (!entry.active() || isExpired(entry.expiresAt())) {
                 throw new UrlExpiredException("This short URL has expired.");
             }
-            return entry.originalUrl();
+            if (entry.urlId() != null) {
+                return new ResolvedRedirect(entry.urlId(), entry.originalUrl());
+            }
+            return resolveFromDatabase(codeOrAlias);
         }
+        return resolveFromDatabase(codeOrAlias);
+    }
+
+    /**
+     * Resolves through PostgreSQL and repopulates the cache.
+     *
+     * @param codeOrAlias the path value from {@code GET /{codeOrAlias}}
+     * @return the redirect target
+     * @throws UrlNotFoundException when nothing matches the supplied value
+     * @throws UrlExpiredException when the link is deactivated or past expiry
+     */
+    private ResolvedRedirect resolveFromDatabase(String codeOrAlias) {
         Url url = urlRepository.resolve(codeOrAlias)
                 .orElseThrow(() -> new UrlNotFoundException("No URL exists for short code " + codeOrAlias));
         if (!url.isActive() || url.isExpired()) {
             throw new UrlExpiredException("This short URL has expired.");
         }
         urlCacheService.put(url.getShortCode(), cached(url));
-        return url.getOriginalUrl();
+        return new ResolvedRedirect(url.getId(), url.getOriginalUrl());
     }
 
     /**
@@ -211,7 +235,8 @@ public class UrlService {
      * @return the corresponding cache record
      */
     private UrlCacheService.CachedUrl cached(Url url) {
-        return new UrlCacheService.CachedUrl(url.getOriginalUrl(), url.getExpiresAt(), url.isActive());
+        return new UrlCacheService.CachedUrl(
+                url.getOriginalUrl(), url.getExpiresAt(), url.isActive(), url.getId());
     }
 
     /**

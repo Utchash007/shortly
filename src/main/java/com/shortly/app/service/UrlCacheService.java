@@ -36,11 +36,16 @@ public class UrlCacheService {
     /**
      * Cached form of a URL record.
      *
+     * <p>{@code urlId} links cache hits back to the database row for click
+     * recording. It is nullable so entries written before Phase 6 still
+     * deserialize; a null id falls back to a database lookup.
+     *
      * @param originalUrl destination URL
      * @param expiresAt expiration timestamp, null for never-expiring links
      * @param active whether the link currently redirects
+     * @param urlId database identifier, may be null for legacy entries
      */
-    public record CachedUrl(String originalUrl, Instant expiresAt, boolean active) {
+    public record CachedUrl(String originalUrl, Instant expiresAt, boolean active, Long urlId) {
     }
 
     private final StringRedisTemplate redisTemplate;
