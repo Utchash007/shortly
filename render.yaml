@@ -1,0 +1,32 @@
+# Render Blueprint for Shortly.
+#
+# The Docker image is built and pushed OUTSIDE this repo. Once pushed, paste
+# its URL below and `render blueprint launch` (or connect the repo in the
+# Render dashboard) to provision the web service. Secrets are entered in the
+# dashboard, never in this file.
+services:
+  - type: web
+    name: shortly-api
+    runtime: image
+    image:
+      # TODO: replace with the pushed image, e.g. registry.example.com/shortly:1.0.0
+      url: REPLACE_WITH_IMAGE_URL
+    plan: starter
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        sync: false
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false
+      - key: SPRING_DATA_REDIS_HOST
+        sync: false
+      - key: SPRING_DATA_REDIS_PORT
+        value: 6379
+      - key: SPRING_DATA_REDIS_PASSWORD
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
